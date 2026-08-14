@@ -34,7 +34,12 @@ public final class MessageService {
     }
 
     public void reload() {
-        YamlConfiguration loaded = YamlConfiguration.loadConfiguration(file);
+        YamlConfiguration loaded = new YamlConfiguration();
+        try {
+            loaded.load(file);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Could not load messages.yml", ex);
+        }
         String rawPrefix = loaded.getString("prefix", "<aqua><bold>RoleRewards</bold></aqua> <dark_gray>»</dark_gray>");
         Component parsedPrefix = miniMessage.deserialize(rawPrefix);
         this.config = loaded;

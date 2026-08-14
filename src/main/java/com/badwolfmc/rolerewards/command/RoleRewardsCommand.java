@@ -22,7 +22,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.time.Instant;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -80,7 +82,14 @@ public final class RoleRewardsCommand {
                 .requires(source -> Permissions.has(source.getSender(), Permissions.RETRY))
                 .then(Commands.argument("reward", StringArgumentType.word())
                         .suggests(this::suggestRewards)
-                        .executes(context -> retry(context, StringArgumentType.getString(context, "reward")))));
+                        .executes(context -> retry(context, StringArgumentType.getString(context, "reward"), null))
+                        .then(Commands.argument("period", StringArgumentType.word())
+                                .suggests(this::suggestRetryPeriods)
+                                .executes(context -> retry(
+                                        context,
+                                        StringArgumentType.getString(context, "reward"),
+                                        StringArgumentType.getString(context, "period")
+                                ))))));
 
         root.then(Commands.literal("reload")
                 .requires(source -> Permissions.has(source.getSender(), Permissions.RELOAD))
@@ -106,7 +115,7 @@ public final class RoleRewardsCommand {
         helpEntry(sender, Permissions.STATUS, "/rolerewards status", "View scheduler and run status");
         helpEntry(sender, Permissions.PREVIEW, "/rolerewards preview <reward>", "Preview current eligible members");
         helpEntry(sender, Permissions.RUN, "/rolerewards run <reward>", "Run the current reward period manually");
-        helpEntry(sender, Permissions.RETRY, "/rolerewards retry <reward>", "Retry failed grants in the current period");
+        helpEntry(sender, Permissions.RETRY, "/rolerewards retry <reward> [period]", "Retry failed grants (current period by default)");
         helpEntry(sender, Permissions.HISTORY, "/rolerewards history", "View your reward history");
         helpEntry(sender, Permissions.HISTORY_OTHERS, "/rolerewards history <player>", "View another player's reward history");
         helpEntry(sender, Permissions.RELOAD, "/rolerewards reload", "Reload configuration and messages");
@@ -167,13 +176,29 @@ public final class RoleRewardsCommand {
         return Command.SINGLE_SUCCESS;
     }
 
-    private int retry(CommandContext<CommandSourceStack> context, String rewardId) {
+    private int retry(CommandContext<CommandSourceStack> context, String rewardId, String rawPeriod) {
         CommandSender sender = context.getSource().getSender();
         if (!guard(sender, Permissions.RETRY) || !knownReward(sender, rewardId)) {
             return Command.SINGLE_SUCCESS;
         }
+
+        YearMonth targetPeriod = null;
+        if (rawPeriod != null) {
+            try {
+                targetPeriod = YearMonth.parse(rawPeriod);
+            } catch (DateTimeParseException ex) {
+                messages.send(sender, "operation-failed",
+                        text("operation", "Retry"),
+                        text("reason", "Period must use YYYY-MM format"));
+                return Command.SINGLE_SUCCESS;
+            }
+        }
+
         messages.send(sender, "operation-started", text("operation", "Retry"), text("reward", rewardId));
-        rewardService.retryCurrentPeriod(rewardId).whenComplete((result, throwable) -> onMain(() -> {
+        CompletableFuture<RewardRunResult> future = targetPeriod == null
+                ? rewardService.retryCurrentPeriod(rewardId)
+                : rewardService.retryPeriod(rewardId, targetPeriod);
+        future.whenComplete((result, throwable) -> onMain(() -> {
             if (throwable != null) {
                 sendFailure(sender, "Retry", throwable);
                 return;
@@ -237,6 +262,30 @@ public final class RoleRewardsCommand {
                 .filter(id -> id.toLowerCase(Locale.ROOT).startsWith(remaining))
                 .forEach(builder::suggest);
         return builder.buildFuture();
+    }
+
+    private CompletableFuture<Suggestions> suggestRetryPeriods(
+            CommandContext<CommandSourceStack> context,
+            SuggestionsBuilder builder
+    ) {
+        String rewardId = StringArgumentType.getString(context, "reward");
+        if (configManager.current().reward(rewardId).isEmpty()) {
+            return builder.buildFuture();
+        }
+
+        String remaining = builder.getRemainingLowerCase();
+        String currentPeriod = YearMonth.now(configManager.current().zoneId()).toString();
+        return rewardService.failedPeriods(rewardId, 24)
+                .exceptionally(ignored -> List.of())
+                .thenApply(failedPeriods -> {
+                    Set<String> periods = new LinkedHashSet<>();
+                    periods.add(currentPeriod);
+                    periods.addAll(failedPeriods);
+                    periods.stream()
+                            .filter(period -> period.startsWith(remaining))
+                            .forEach(builder::suggest);
+                    return builder.build();
+                });
     }
 
     private CompletableFuture<Suggestions> suggestPlayers(CommandContext<CommandSourceStack> context, SuggestionsBuilder builder) {

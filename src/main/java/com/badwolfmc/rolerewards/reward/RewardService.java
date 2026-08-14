@@ -2,7 +2,6 @@ package com.badwolfmc.rolerewards.reward;
 
 import com.badwolfmc.rolerewards.config.ConfigManager;
 import com.badwolfmc.rolerewards.config.RewardDefinition;
-import com.badwolfmc.rolerewards.database.GrantStatus;
 import com.badwolfmc.rolerewards.database.RewardGrant;
 import com.badwolfmc.rolerewards.database.RewardRun;
 import com.badwolfmc.rolerewards.database.SqliteStore;
@@ -12,6 +11,7 @@ import com.badwolfmc.rolerewards.schedule.ScheduleCalculator;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.time.YearMonth;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -77,8 +77,13 @@ public final class RewardService {
     }
 
     public CompletableFuture<RewardRunResult> runCurrentPeriod(String rewardId, String trigger) {
+        YearMonth period = YearMonth.from(ZonedDateTime.now(configManager.current().zoneId()));
+        return runPeriod(rewardId, period, trigger);
+    }
+
+    public CompletableFuture<RewardRunResult> runPeriod(String rewardId, YearMonth targetPeriod, String trigger) {
         RewardDefinition reward = requireReward(rewardId);
-        String period = ScheduleCalculator.period(ZonedDateTime.now(configManager.current().zoneId()));
+        String period = targetPeriod.toString();
         String runKey = reward.id() + ":" + period;
 
         if (activeRuns.putIfAbsent(runKey, Boolean.TRUE) != null) {
@@ -105,8 +110,13 @@ public final class RewardService {
     }
 
     public CompletableFuture<RewardRunResult> retryCurrentPeriod(String rewardId) {
+        YearMonth period = YearMonth.from(ZonedDateTime.now(configManager.current().zoneId()));
+        return retryPeriod(rewardId, period);
+    }
+
+    public CompletableFuture<RewardRunResult> retryPeriod(String rewardId, YearMonth targetPeriod) {
         RewardDefinition reward = requireReward(rewardId);
-        String period = ScheduleCalculator.period(ZonedDateTime.now(configManager.current().zoneId()));
+        String period = targetPeriod.toString();
         String runKey = reward.id() + ":" + period;
 
         if (activeRuns.putIfAbsent(runKey, Boolean.TRUE) != null) {
@@ -172,6 +182,11 @@ public final class RewardService {
         return store.knownPlayerNames(limit);
     }
 
+    public CompletableFuture<List<String>> failedPeriods(String rewardId, int limit) {
+        RewardDefinition reward = requireReward(rewardId);
+        return store.getFailedPeriods(reward.id(), limit);
+    }
+
     private CompletableFuture<RewardRunResult> executeSnapshot(
             RewardDefinition reward,
             String period,
@@ -221,6 +236,16 @@ public final class RewardService {
                             member.uuid(),
                             null,
                             "LuckPerms could not resolve a username for this UUID"
+                    )
+                    .thenApply(ignored -> false);
+        }
+        if (startCommandIndex < 0 || startCommandIndex > reward.commands().size()) {
+            return store.markGrantFailed(
+                            reward.id(),
+                            period,
+                            member.uuid(),
+                            member.username(),
+                            "Stored command progress is incompatible with the current reward configuration; verify before retrying."
                     )
                     .thenApply(ignored -> false);
         }

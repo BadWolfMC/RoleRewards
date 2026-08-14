@@ -32,7 +32,7 @@ permissions:
     default: op
 
   rolerewards.retry:
-    description: Retry failed grants for a reward in the current calendar period.
+    description: Retry failed grants for a reward period.
     default: op
 
   rolerewards.reload:

@@ -1,10 +1,14 @@
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
+
 plugins {
     java
     id("com.gradleup.shadow") version "9.6.1"
 }
 
 group = "com.badwolfmc"
-version = "1.0.0-SNAPSHOT"
+version = providers.gradleProperty("pluginVersion").orElse("1.0.0-SNAPSHOT").get()
+
+val pluginVersion = version.toString()
 
 repositories {
     mavenCentral()
@@ -23,6 +27,7 @@ dependencies {
     }
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.13.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.13.4")
 }
 
 java {
@@ -36,13 +41,19 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.processResources {
+    inputs.property("pluginVersion", pluginVersion)
     filesMatching("plugin.yml") {
-        expand("version" to project.version)
+        expand("version" to pluginVersion)
     }
 }
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
 }
 
 tasks.jar {

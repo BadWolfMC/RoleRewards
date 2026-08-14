@@ -76,6 +76,9 @@ public final class ConfigManager {
             if (!REWARD_ID.matcher(id).matches()) {
                 throw new IllegalArgumentException("Invalid reward id '" + rawId + "'; use a-z, 0-9, _ or -");
             }
+            if (rewards.containsKey(id)) {
+                throw new IllegalArgumentException("Duplicate reward id after case normalization: '" + rawId + "'");
+            }
 
             ConfigurationSection section = rewardsSection.getConfigurationSection(rawId);
             if (section == null) {
@@ -86,6 +89,7 @@ public final class ConfigManager {
             if (group == null || group.isBlank()) {
                 throw new IllegalArgumentException("Reward '" + id + "' requires a LuckPerms group");
             }
+            group = group.trim();
 
             boolean directOnly = section.getBoolean("membership.direct-only", true);
             if (!directOnly) {
@@ -98,7 +102,7 @@ public final class ConfigManager {
                 throw new IllegalArgumentException("Reward '" + id + "': schedule.day-of-month must be between 1 and 31");
             }
 
-            String rawTime = section.getString("schedule.time", "06:00");
+            String rawTime = section.getString("schedule.time", "22:00");
             LocalTime time;
             try {
                 time = LocalTime.parse(rawTime, TIME_FORMAT);
@@ -110,6 +114,15 @@ public final class ConfigManager {
             commands.removeIf(String::isBlank);
             if (commands.isEmpty()) {
                 throw new IllegalArgumentException("Reward '" + id + "' must configure at least one console command");
+            }
+            for (String command : commands) {
+                String dispatchable = command.trim();
+                while (dispatchable.startsWith("/")) {
+                    dispatchable = dispatchable.substring(1).trim();
+                }
+                if (dispatchable.isBlank()) {
+                    throw new IllegalArgumentException("Reward '" + id + "' contains an empty console command");
+                }
             }
 
             rewards.put(id, new RewardDefinition(

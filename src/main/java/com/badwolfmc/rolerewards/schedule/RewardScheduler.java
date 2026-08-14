@@ -77,7 +77,7 @@ public final class RewardScheduler {
                         if (existing.isPresent()) {
                             return java.util.concurrent.CompletableFuture.completedFuture(null);
                         }
-                        return rewardService.runCurrentPeriod(reward.id(), "AUTO")
+                        return rewardService.runPeriod(reward.id(), yearMonth, "AUTO")
                                 .thenAccept(result -> plugin.getLogger().info(
                                         "Automatic reward '" + reward.id() + "' / " + period
                                                 + " completed: " + result.granted() + " granted, "

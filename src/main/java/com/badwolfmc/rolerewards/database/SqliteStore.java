@@ -21,6 +21,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class SqliteStore implements AutoCloseable {
@@ -154,6 +155,28 @@ public final class SqliteStore implements AutoCloseable {
                 """, rewardId, period));
     }
 
+    public CompletableFuture<List<String>> getFailedPeriods(String rewardId, int limit) {
+        return supplyAsync(() -> {
+            List<String> periods = new ArrayList<>();
+            try (Connection connection = open(); PreparedStatement statement = connection.prepareStatement("""
+                    SELECT DISTINCT period
+                    FROM reward_grants
+                    WHERE reward_id = ? AND status = 'FAILED'
+                    ORDER BY period DESC
+                    LIMIT ?
+                    """)) {
+                statement.setString(1, rewardId);
+                statement.setInt(2, limit);
+                try (ResultSet rs = statement.executeQuery()) {
+                    while (rs.next()) {
+                        periods.add(rs.getString("period"));
+                    }
+                }
+            }
+            return List.copyOf(periods);
+        });
+    }
+
     public CompletableFuture<Boolean> createRunSnapshot(
             String rewardId,
             String period,
@@ -220,7 +243,7 @@ public final class SqliteStore implements AutoCloseable {
                 statement.setString(3, rewardId);
                 statement.setString(4, period);
                 statement.setString(5, uuid.toString());
-                statement.executeUpdate();
+                requireSingleUpdate(statement.executeUpdate(), "advance command progress for " + rewardId + " / " + period + " / " + uuid);
             }
         });
     }
@@ -240,7 +263,7 @@ public final class SqliteStore implements AutoCloseable {
                 statement.setString(4, rewardId);
                 statement.setString(5, period);
                 statement.setString(6, uuid.toString());
-                statement.executeUpdate();
+                requireSingleUpdate(statement.executeUpdate(), "mark grant GRANTED for " + rewardId + " / " + period + " / " + uuid);
             }
         });
     }
@@ -259,7 +282,7 @@ public final class SqliteStore implements AutoCloseable {
                 statement.setString(4, rewardId);
                 statement.setString(5, period);
                 statement.setString(6, uuid.toString());
-                statement.executeUpdate();
+                requireSingleUpdate(statement.executeUpdate(), "mark grant FAILED for " + rewardId + " / " + period + " / " + uuid);
             }
         });
     }
@@ -277,7 +300,7 @@ public final class SqliteStore implements AutoCloseable {
                 statement.setString(3, rewardId);
                 statement.setString(4, period);
                 statement.setString(5, uuid.toString());
-                statement.executeUpdate();
+                requireSingleUpdate(statement.executeUpdate(), "mark grant PENDING for " + rewardId + " / " + period + " / " + uuid);
             }
         });
     }
@@ -301,7 +324,7 @@ public final class SqliteStore implements AutoCloseable {
                     statement.setInt(4, failed);
                     statement.setString(5, rewardId);
                     statement.setString(6, period);
-                    statement.executeUpdate();
+                    requireSingleUpdate(statement.executeUpdate(), "complete reward run " + rewardId + " / " + period);
                 }
                 return loadRun(connection, rewardId, period)
                         .orElseThrow(() -> new SQLException("Run disappeared while completing it"));
@@ -401,6 +424,12 @@ public final class SqliteStore implements AutoCloseable {
         }
     }
 
+    private void requireSingleUpdate(int updatedRows, String operation) throws SQLException {
+        if (updatedRows != 1) {
+            throw new SQLException("Expected exactly one row while attempting to " + operation + ", but updated " + updatedRows);
+        }
+    }
+
     private Optional<RewardRun> loadRun(Connection connection, String rewardId, String period) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT * FROM reward_runs WHERE reward_id = ? AND period = ?
@@ -478,13 +507,30 @@ public final class SqliteStore implements AutoCloseable {
     @Override
     public void close() {
         executor.shutdown();
+        boolean terminated = false;
         try {
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+            terminated = executor.awaitTermination(5, TimeUnit.SECONDS);
+            if (!terminated) {
                 executor.shutdownNow();
+                terminated = executor.awaitTermination(2, TimeUnit.SECONDS);
             }
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             executor.shutdownNow();
+        }
+
+        if (terminated) {
+            checkpointWal();
+        } else {
+            logger.warning("RoleRewards database executor did not terminate cleanly; skipping final WAL checkpoint.");
+        }
+    }
+
+    private void checkpointWal() {
+        try (Connection connection = open(); Statement statement = connection.createStatement()) {
+            statement.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+        } catch (SQLException ex) {
+            logger.log(Level.WARNING, "Could not checkpoint RoleRewards SQLite WAL during shutdown.", ex);
         }
     }
 

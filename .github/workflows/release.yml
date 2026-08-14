@@ -1,0 +1,110 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without the v prefix (for example 1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark this as a prerelease'
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: 'Create the GitHub release as a draft'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and create GitHub release
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+
+    env:
+      VERSION: ${{ inputs.version }}
+      TAG: v${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Version must look like 1.2.3 or 1.2.3-beta.1 (without a leading v)." >&2
+            exit 1
+          fi
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists." >&2
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists." >&2
+            exit 1
+          fi
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Ensure Gradle wrapper is executable
+        run: chmod +x gradlew
+
+      - name: Build and test release
+        run: ./gradlew clean build -PpluginVersion="$VERSION" --no-daemon --warning-mode=all
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="build/libs/RoleRewards-$VERSION.jar"
+          SOURCES="build/libs/RoleRewards-$VERSION-sources.jar"
+          test -f "$JAR"
+          test -f "$SOURCES"
+          sha256sum "$JAR" > "$JAR.sha256"
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          set -euo pipefail
+          JAR="build/libs/RoleRewards-$VERSION.jar"
+          SOURCES="build/libs/RoleRewards-$VERSION-sources.jar"
+
+          args=(
+            release create "$TAG"
+            "$JAR"
+            "$JAR.sha256"
+            "$SOURCES"
+            --title "RoleRewards $VERSION"
+            --generate-notes
+            --target "$GITHUB_SHA"
+          )
+
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          if [[ "$DRAFT" == "true" ]]; then
+            args+=(--draft)
+          fi
+
+          gh "${args[@]}"

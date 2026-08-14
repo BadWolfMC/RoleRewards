@@ -22,10 +22,7 @@ public final class ScheduleCalculator {
     public static ZonedDateTime nextDue(RewardDefinition reward, ZonedDateTime now, boolean currentPeriodRecorded) {
         YearMonth current = YearMonth.from(now);
         ZonedDateTime currentDue = dueAt(reward, current, now.getZone());
-        if (!currentPeriodRecorded && !now.isBefore(currentDue)) {
-            return currentDue;
-        }
-        if (!currentPeriodRecorded && now.isBefore(currentDue)) {
+        if (!currentPeriodRecorded) {
             return currentDue;
         }
         return dueAt(reward, current.plusMonths(1), now.getZone());

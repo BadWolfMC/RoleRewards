@@ -12,6 +12,8 @@ import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SqliteStoreTest {
@@ -59,6 +61,33 @@ class SqliteStoreTest {
         assertEquals(1, failed.size());
         assertEquals(1, failed.getFirst().nextCommandIndex());
         assertEquals("second command failed", failed.getFirst().failureReason());
+    }
+
+    @Test
+    void failedPeriodsRemainDiscoverableAfterMonthRollover() throws Exception {
+        store = new SqliteStore(tempDir.resolve("test.db"), Logger.getAnonymousLogger());
+        store.initialize();
+
+        UUID uuid = UUID.randomUUID();
+        var member = new EligibleMember(uuid, "ExamplePlayer");
+        assertTrue(store.createRunSnapshot("companion", "2026-07", "TEST", List.of(member)).join());
+        store.markGrantFailed("companion", "2026-07", uuid, "ExamplePlayer", "test failure").join();
+
+        assertEquals(List.of("2026-07"), store.getFailedPeriods("companion", 24).join());
+    }
+
+    @Test
+    void missingGrantMutationFailsInsteadOfSilentlySucceeding() throws Exception {
+        store = new SqliteStore(tempDir.resolve("test.db"), Logger.getAnonymousLogger());
+        store.initialize();
+
+        var thrown = assertThrows(
+                java.util.concurrent.CompletionException.class,
+                () -> store.markGrantGranted(
+                        "companion", "2026-08", UUID.randomUUID(), "MissingPlayer"
+                ).join()
+        );
+        assertInstanceOf(SqliteStore.StoreException.class, thrown.getCause());
     }
 
     @Test
