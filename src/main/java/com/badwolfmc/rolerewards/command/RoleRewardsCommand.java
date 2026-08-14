@@ -89,7 +89,7 @@ public final class RoleRewardsCommand {
                                         context,
                                         StringArgumentType.getString(context, "reward"),
                                         StringArgumentType.getString(context, "period")
-                                ))))));
+                                )))));
 
         root.then(Commands.literal("reload")
                 .requires(source -> Permissions.has(source.getSender(), Permissions.RELOAD))
