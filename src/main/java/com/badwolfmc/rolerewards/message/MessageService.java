@@ -34,6 +34,10 @@ public final class MessageService {
     }
 
     public void reload() {
+        apply(loadCandidate());
+    }
+
+    public ReloadSnapshot loadCandidate() {
         YamlConfiguration loaded = new YamlConfiguration();
         try {
             loaded.load(file);
@@ -42,8 +46,13 @@ public final class MessageService {
         }
         String rawPrefix = loaded.getString("prefix", "<aqua><bold>RoleRewards</bold></aqua> <dark_gray>»</dark_gray>");
         Component parsedPrefix = miniMessage.deserialize(rawPrefix);
-        this.config = loaded;
-        this.prefix = parsedPrefix;
+        return new ReloadSnapshot(loaded, parsedPrefix);
+    }
+
+    public void apply(ReloadSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        this.config = snapshot.config();
+        this.prefix = snapshot.prefix();
     }
 
     public void send(CommandSender sender, String key, TagResolver... resolvers) {
@@ -61,6 +70,13 @@ public final class MessageService {
         all.add(Placeholder.component("prefix", prefix));
         all.addAll(Arrays.asList(resolvers));
         return miniMessage.deserialize(raw, all.toArray(TagResolver[]::new));
+    }
+
+    public record ReloadSnapshot(YamlConfiguration config, Component prefix) {
+        public ReloadSnapshot {
+            Objects.requireNonNull(config, "config");
+            Objects.requireNonNull(prefix, "prefix");
+        }
     }
 
     public static TagResolver text(String key, Object value) {

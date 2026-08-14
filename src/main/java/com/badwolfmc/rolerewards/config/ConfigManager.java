@@ -2,8 +2,10 @@ package com.badwolfmc.rolerewards.config;
 
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.io.File;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -23,6 +25,7 @@ public final class ConfigManager {
             .withResolverStyle(ResolverStyle.STRICT);
 
     private final JavaPlugin plugin;
+    private File file;
     private volatile RoleRewardsConfig current;
 
     public ConfigManager(JavaPlugin plugin) {
@@ -31,15 +34,33 @@ public final class ConfigManager {
 
     public RoleRewardsConfig loadInitial() {
         plugin.saveDefaultConfig();
-        RoleRewardsConfig loaded = parse(plugin.getConfig());
-        this.current = loaded;
+        this.file = new File(plugin.getDataFolder(), "config.yml");
+        RoleRewardsConfig loaded = loadCandidate();
+        apply(loaded);
         return loaded;
     }
 
+    public RoleRewardsConfig loadCandidate() {
+        if (file == null) {
+            throw new IllegalStateException("Configuration file has not been initialized yet");
+        }
+
+        YamlConfiguration loaded = new YamlConfiguration();
+        try {
+            loaded.load(file);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Could not load config.yml", ex);
+        }
+        return parse(loaded);
+    }
+
+    public void apply(RoleRewardsConfig loaded) {
+        this.current = Objects.requireNonNull(loaded, "loaded");
+    }
+
     public RoleRewardsConfig reload() {
-        plugin.reloadConfig();
-        RoleRewardsConfig loaded = parse(plugin.getConfig());
-        this.current = loaded;
+        RoleRewardsConfig loaded = loadCandidate();
+        apply(loaded);
         return loaded;
     }
 

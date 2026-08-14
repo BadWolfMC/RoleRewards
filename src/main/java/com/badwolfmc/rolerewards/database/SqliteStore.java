@@ -25,6 +25,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class SqliteStore implements AutoCloseable {
+    private static final int SCHEMA_VERSION = 1;
+
     private final Path databasePath;
     private final Logger logger;
     private final ExecutorService executor;
@@ -42,7 +44,48 @@ public final class SqliteStore implements AutoCloseable {
     public void initialize() throws Exception {
         Files.createDirectories(databasePath.getParent());
         Class.forName("org.sqlite.JDBC");
-        try (Connection connection = open(); Statement statement = connection.createStatement()) {
+
+        try (Connection connection = open()) {
+            int schemaVersion = schemaVersion(connection);
+            if (schemaVersion > SCHEMA_VERSION) {
+                throw new SQLException(
+                        "RoleRewards database schema version " + schemaVersion
+                                + " is newer than this plugin supports (" + SCHEMA_VERSION + ")"
+                );
+            }
+            enableWal(connection);
+            if (schemaVersion < 1) {
+                migrateToVersion1(connection);
+            }
+            if (schemaVersion(connection) != SCHEMA_VERSION) {
+                throw new SQLException("RoleRewards database schema migration did not reach version " + SCHEMA_VERSION);
+            }
+        }
+        recoverInterruptedWork();
+    }
+
+    private void enableWal(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("PRAGMA journal_mode = WAL")) {
+            if (!result.next() || !"wal".equalsIgnoreCase(result.getString(1))) {
+                throw new SQLException("Could not enable SQLite WAL journal mode");
+            }
+        }
+    }
+
+    private int schemaVersion(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("PRAGMA user_version")) {
+            if (!result.next()) {
+                throw new SQLException("Could not read SQLite schema version");
+            }
+            return result.getInt(1);
+        }
+    }
+
+    private void migrateToVersion1(Connection connection) throws SQLException {
+        connection.setAutoCommit(false);
+        try (Statement statement = connection.createStatement()) {
             statement.executeUpdate("""
                     CREATE TABLE IF NOT EXISTS reward_runs (
                         reward_id TEXT NOT NULL,
@@ -76,36 +119,55 @@ public final class SqliteStore implements AutoCloseable {
                     """);
             statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_reward_grants_uuid ON reward_grants(player_uuid)");
             statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_reward_grants_name ON reward_grants(player_name COLLATE NOCASE)");
+            statement.execute("PRAGMA user_version = 1");
+            connection.commit();
+        } catch (SQLException ex) {
+            rollback(connection, ex);
+            throw ex;
         }
-        recoverInterruptedWork();
+        connection.setAutoCommit(true);
     }
 
     private void recoverInterruptedWork() throws SQLException {
         Instant now = Instant.now();
         try (Connection connection = open()) {
             connection.setAutoCommit(false);
-            try (PreparedStatement grants = connection.prepareStatement("""
-                    UPDATE reward_grants
-                    SET status = 'FAILED',
-                        failure_reason = COALESCE(failure_reason, 'Previous reward run was interrupted before completion; verify before retrying.'),
-                        updated_at = ?
-                    WHERE status = 'PENDING'
-                    """)) {
-                grants.setString(1, now.toString());
-                int recovered = grants.executeUpdate();
+            try {
+                int recovered;
+                try (PreparedStatement grants = connection.prepareStatement("""
+                        UPDATE reward_grants
+                        SET status = 'FAILED',
+                            failure_reason = COALESCE(failure_reason, 'Previous reward run was interrupted before completion; verify before retrying.'),
+                            updated_at = ?
+                        WHERE status = 'PENDING'
+                        """)) {
+                    grants.setString(1, now.toString());
+                    recovered = grants.executeUpdate();
+                }
+                try (PreparedStatement runs = connection.prepareStatement("""
+                        UPDATE reward_runs
+                        SET status = 'INTERRUPTED', completed_at = COALESCE(completed_at, ?)
+                        WHERE status = 'RUNNING'
+                        """)) {
+                    runs.setString(1, now.toString());
+                    runs.executeUpdate();
+                }
+                connection.commit();
                 if (recovered > 0) {
                     logger.warning("Recovered " + recovered + " interrupted pending reward grant(s) as FAILED for manual review.");
                 }
+            } catch (SQLException ex) {
+                rollback(connection, ex);
+                throw ex;
             }
-            try (PreparedStatement runs = connection.prepareStatement("""
-                    UPDATE reward_runs
-                    SET status = 'INTERRUPTED', completed_at = COALESCE(completed_at, ?)
-                    WHERE status = 'RUNNING'
-                    """)) {
-                runs.setString(1, now.toString());
-                runs.executeUpdate();
-            }
-            connection.commit();
+        }
+    }
+
+    private void rollback(Connection connection, SQLException original) {
+        try {
+            connection.rollback();
+        } catch (SQLException rollbackFailure) {
+            original.addSuppressed(rollbackFailure);
         }
     }
 
@@ -479,7 +541,6 @@ public final class SqliteStore implements AutoCloseable {
         try (Statement statement = connection.createStatement()) {
             statement.execute("PRAGMA foreign_keys = ON");
             statement.execute("PRAGMA busy_timeout = 5000");
-            statement.execute("PRAGMA journal_mode = WAL");
         }
         return connection;
     }

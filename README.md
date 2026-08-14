@@ -64,9 +64,9 @@ rewards:
       - "points give {player} 50"
 ```
 
-RoleRewards v1 intentionally supports **direct LuckPerms group membership only**, matching `lp group <group> listmembers`. A configured `direct-only: false` is rejected rather than silently changing eligibility semantics.
+RoleRewards v1 intentionally supports **direct LuckPerms group membership only**, matching the broad behavior of `lp group <group> listmembers`. Eligibility requires a positive, unexpired direct inheritance node; negated or expired inheritance nodes are ignored. Before previewing or creating a run snapshot, RoleRewards also verifies that the configured LuckPerms group exists. A misspelled or deleted group therefore fails safely instead of recording an empty month. A configured `direct-only: false` is rejected rather than silently changing eligibility semantics.
 
-Reward IDs are case-normalized and must be unique after normalization. Empty/command-only-slash entries are rejected during configuration loading.
+Reward IDs are case-normalized and must be unique after normalization. Empty/command-only-slash entries are rejected during configuration loading. `/rolerewards reload` stages and validates both `config.yml` and `messages.yml` before either live configuration is replaced, then restarts the scheduler only after both files have loaded successfully.
 
 The configured day is clamped to the last valid day of shorter months. For example, day 31 runs on February's final day.
 
@@ -142,7 +142,9 @@ plugins/RoleRewards/
 └── rolerewards.db
 ```
 
-SQLite runs in WAL mode. RoleRewards performs a WAL checkpoint on a clean plugin shutdown. The safest backup is therefore taken after a clean server stop. If plugin data is copied while the server is running, treat `rolerewards.db`, `rolerewards.db-wal`, and `rolerewards.db-shm` as one SQLite database set rather than copying only the main database file during an active write.
+SQLite runs in WAL mode. RoleRewards records and validates its database schema version with SQLite `PRAGMA user_version`; startup refuses a database created by a newer unsupported schema rather than attempting to use it blindly. Pre-release/unversioned databases are migrated idempotently to schema version 1 on first startup with this build.
+
+RoleRewards performs a WAL checkpoint on a clean plugin shutdown. The safest backup is therefore taken after a clean server stop. If plugin data is copied while the server is running, treat `rolerewards.db`, `rolerewards.db-wal`, and `rolerewards.db-shm` as one SQLite database set rather than copying only the main database file during an active write.
 
 ## GitHub automation
 

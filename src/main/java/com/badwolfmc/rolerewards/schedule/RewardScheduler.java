@@ -55,11 +55,12 @@ public final class RewardScheduler {
             return;
         }
 
-        ZonedDateTime now = ZonedDateTime.now(configManager.current().zoneId());
+        var config = configManager.current();
+        ZonedDateTime now = ZonedDateTime.now(config.zoneId());
         String period = ScheduleCalculator.period(now);
         YearMonth yearMonth = YearMonth.from(now);
 
-        var enabled = configManager.current().rewards().values().stream()
+        var enabled = config.rewards().values().stream()
                 .filter(RewardDefinition::scheduleEnabled)
                 .toList();
 

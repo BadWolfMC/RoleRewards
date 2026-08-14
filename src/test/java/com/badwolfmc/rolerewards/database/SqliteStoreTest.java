@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.sql.DriverManager;
 import java.util.List;
 import java.util.UUID;
 import java.util.logging.Logger;
@@ -27,6 +28,69 @@ class SqliteStoreTest {
         if (store != null) {
             store.close();
         }
+    }
+
+    @Test
+    void initializesAndRecordsSchemaVersion() throws Exception {
+        Path database = tempDir.resolve("test.db");
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        store.initialize();
+
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath());
+             var statement = connection.createStatement();
+             var result = statement.executeQuery("PRAGMA user_version")) {
+            assertTrue(result.next());
+            assertEquals(1, result.getInt(1));
+        }
+    }
+
+    @Test
+    void newerDatabaseSchemaIsRejected() throws Exception {
+        Path database = tempDir.resolve("test.db");
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        store.initialize();
+        store.close();
+        store = null;
+
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath());
+             var statement = connection.createStatement()) {
+            statement.execute("PRAGMA user_version = 2");
+        }
+
+        var newerStore = new SqliteStore(database, Logger.getAnonymousLogger());
+        try {
+            var thrown = assertThrows(java.sql.SQLException.class, newerStore::initialize);
+            assertTrue(thrown.getMessage().contains("newer than this plugin supports"));
+        } finally {
+            newerStore.close();
+        }
+    }
+
+    @Test
+    void pendingWorkIsRecoveredAsFailedAfterRestart() throws Exception {
+        Path database = tempDir.resolve("test.db");
+        UUID uuid = UUID.randomUUID();
+
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        store.initialize();
+        assertTrue(store.createRunSnapshot(
+                "companion",
+                "2026-08",
+                "TEST",
+                List.of(new EligibleMember(uuid, "ExamplePlayer"))
+        ).join());
+        store.close();
+
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        store.initialize();
+
+        var failed = store.getFailedGrants("companion", "2026-08").join();
+        assertEquals(1, failed.size());
+        assertEquals(uuid, failed.getFirst().playerUuid());
+        assertTrue(failed.getFirst().failureReason().contains("interrupted"));
+
+        var run = store.getRun("companion", "2026-08").join().orElseThrow();
+        assertEquals("INTERRUPTED", run.status());
     }
 
     @Test

@@ -27,10 +27,27 @@ public final class LuckPermsEligibilityService {
         }
 
         InheritanceNode groupNode = InheritanceNode.builder(reward.group()).build();
-        NodeMatcher<InheritanceNode> matcher = luckPerms.getNodeMatcherFactory().key(groupNode);
+        NodeMatcher<InheritanceNode> matcher = NodeMatcher.key(groupNode);
 
-        return luckPerms.getUserManager().searchAll(matcher)
-                .thenCompose(matches -> resolveMembers(matches.keySet()));
+        return luckPerms.getGroupManager().loadGroup(reward.group())
+                .thenCompose(group -> {
+                    if (group.isEmpty()) {
+                        return CompletableFuture.failedFuture(
+                                new IllegalArgumentException("LuckPerms group '" + reward.group() + "' does not exist")
+                        );
+                    }
+
+                    return luckPerms.getUserManager().searchAll(matcher)
+                            .thenCompose(matches -> resolveMembers(matches.entrySet().stream()
+                                    .filter(entry -> entry.getValue().stream()
+                                            .anyMatch(LuckPermsEligibilityService::isActivePositiveMembership))
+                                    .map(java.util.Map.Entry::getKey)
+                                    .toList()));
+                });
+    }
+
+    private static boolean isActivePositiveMembership(InheritanceNode node) {
+        return node.getValue() && !node.hasExpired();
     }
 
     public CompletableFuture<String> resolveUsername(UUID uuid) {

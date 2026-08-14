@@ -9,6 +9,7 @@ scheduler-check-minutes: 5
 rewards:
   companion:
     # RoleRewards v1 intentionally uses direct LuckPerms group membership.
+    # The group must exist; negated or expired direct inheritance nodes do not qualify.
     group: "companion"
     membership:
       direct-only: true

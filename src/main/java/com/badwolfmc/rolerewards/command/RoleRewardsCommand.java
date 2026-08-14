@@ -222,8 +222,11 @@ public final class RoleRewardsCommand {
             return Command.SINGLE_SUCCESS;
         }
         try {
-            configManager.reload();
-            messages.reload();
+            var nextConfig = configManager.loadCandidate();
+            var nextMessages = messages.loadCandidate();
+
+            configManager.apply(nextConfig);
+            messages.apply(nextMessages);
             scheduler.restart();
             messages.send(sender, "reload-success");
         } catch (Exception ex) {
