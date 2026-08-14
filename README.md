@@ -10,6 +10,8 @@ RoleRewards is a small Paper plugin for granting scheduled rewards to members of
 
 RoleRewards has no hard dependency on CMI, PlayerPoints, PlaceholderAPI, Continuum, or an external database. SQLite is bundled into the plugin JAR and stored at `plugins/RoleRewards/rolerewards.db`.
 
+> **Platform target:** the distributed/deployable RoleRewards JAR is intentionally built for **Linux x86_64 with glibc** (the BadWolfMC Paper host). Xerial SQLite JDBC is kept universal on the development/test classpath, but the shaded plugin JAR retains only its Linux x86_64 native library. This keeps the production artifact small while allowing the project and tests to build normally on Windows. A build-time verification task fails if that packaging guarantee changes.
+
 ## Build
 
 The project uses Gradle Kotlin DSL, the committed Gradle Wrapper, and a Java 25 toolchain. A separate system Gradle installation is not required for normal builds.
@@ -26,7 +28,7 @@ Windows PowerShell:
 .\gradlew.bat clean build
 ```
 
-The deployable shaded JAR is written to `build/libs/RoleRewards-<version>.jar`. The normal development version is `1.0.0-SNAPSHOT`; automated release builds override it with the requested release version.
+The deployable shaded JAR is written to `build/libs/RoleRewards-<version>.jar`. The normal development version is `1.0.0-SNAPSHOT`; automated release builds override it with the requested release version. The deployable JAR is platform-targeted to Linux x86_64/glibc even when the build itself runs on Windows.
 
 ## First-run commissioning
 

@@ -9,6 +9,7 @@ group = "com.badwolfmc"
 version = providers.gradleProperty("pluginVersion").orElse("1.0.0-SNAPSHOT").get()
 
 val pluginVersion = version.toString()
+val sqliteNativePath = "org/sqlite/native/Linux/x86_64/libsqlitejdbc.so"
 
 repositories {
     mavenCentral()
@@ -62,8 +63,45 @@ tasks.jar {
 
 tasks.shadowJar {
     archiveClassifier.set("")
+
+    // RoleRewards is deployed only on Ubuntu Linux x86_64/glibc. Xerial's
+    // default SQLite JDBC JAR contains native libraries for many platforms;
+    // keep the universal dependency for cross-platform development/tests, but
+    // ship only the native library the production server can actually load.
+    eachFile {
+        if (path.startsWith("org/sqlite/native/") && path != sqliteNativePath) {
+            exclude()
+        }
+    }
+
+    manifest {
+        attributes["RoleRewards-Target-Platform"] = "linux-x86_64-glibc"
+    }
+}
+
+val verifyTargetedJar by tasks.registering {
+    group = "verification"
+    description = "Verifies that the shaded plugin JAR contains only the targeted SQLite native library."
+    dependsOn(tasks.shadowJar)
+
+    doLast {
+        val jarFile = tasks.shadowJar.get().archiveFile.get().asFile
+        val nativeEntries = java.util.zip.ZipFile(jarFile).use { zip ->
+            zip.entries().asSequence()
+                .map { it.name }
+                .filter { it.startsWith("org/sqlite/native/") && !it.endsWith("/") }
+                .toList()
+        }
+
+        if (nativeEntries != listOf(sqliteNativePath)) {
+            throw GradleException(
+                "Expected exactly $sqliteNativePath in ${jarFile.name}, but found: " +
+                    nativeEntries.joinToString().ifEmpty { "<none>" }
+            )
+        }
+    }
 }
 
 tasks.build {
-    dependsOn(tasks.shadowJar)
+    dependsOn(tasks.shadowJar, verifyTargetedJar)
 }
