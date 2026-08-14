@@ -1,0 +1,29 @@
+prefix: "<gradient:#17B4E6:#5555FF><bold>RoleRewards</bold></gradient> <dark_gray>»</dark_gray>"
+
+no-permission: "<prefix> <red>You do not have permission to use that command.</red>"
+player-only: "<prefix> <red>Specify a player name when running this command from console.</red>"
+unknown-reward: "<prefix> <red>Unknown reward <white><reward></white>.</red>"
+operation-started: "<prefix> <gray><operation> for <white><reward></white> has started.</gray>"
+operation-failed: "<prefix> <red><operation> failed: <white><reason></white></red>"
+reload-success: "<prefix> <green>Configuration and messages reloaded.</green>"
+reload-failed: "<prefix> <red>Reload failed: <white><reason></white></red>"
+
+help-header: "<prefix> <gray>Available commands:</gray>"
+help-entry: "<dark_gray>•</dark_gray> <aqua><command></aqua> <gray>— <description></gray>"
+
+status-header: "<prefix> <gray>Configured rewards:</gray>"
+status-entry: "<dark_gray>•</dark_gray> <white><reward></white> <gray>— schedule <schedule>, next due <aqua><next_due></aqua>, last run <white><last_run></white></gray>"
+
+preview-header: "<prefix> <gray>Preview for <white><reward></white> / <aqua><period></aqua>: <white><eligible></white> currently eligible.</gray>"
+preview-run-recorded: "<prefix> <yellow>This period already has a recorded run snapshot; automatic/manual run will not add new recipients.</yellow>"
+preview-player: "<dark_gray>•</dark_gray> <white><player></white> <gray>— <status></gray>"
+preview-empty: "<prefix> <gray>No eligible members were found.</gray>"
+
+run-complete: "<prefix> <green><reward></green> <gray>/<aqua><period></aqua>: <white><granted></white> granted, <white><failed></white> failed, <white><skipped></white> skipped.</gray>"
+run-already-recorded: "<prefix> <yellow><reward> already has a run snapshot for <period>; no new recipients were added.</yellow>"
+retry-complete: "<prefix> <gray>Retry for <white><reward></white> / <aqua><period></aqua>: <white><granted></white> recovered, <white><failed></white> still failed.</gray>"
+retry-none: "<prefix> <gray>There are no failed grants to retry for <white><reward></white> / <aqua><period></aqua>.</gray>"
+
+history-header: "<prefix> <gray>Reward history for <white><player></white>:</gray>"
+history-entry: "<dark_gray>•</dark_gray> <aqua><period></aqua> <white><reward></white> <gray>— <status> <dark_gray>(<timestamp>)</dark_gray></gray>"
+history-empty: "<prefix> <gray>No RoleRewards history was found for <white><player></white>.</gray>"

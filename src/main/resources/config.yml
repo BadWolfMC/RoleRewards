@@ -1,0 +1,28 @@
+# RoleRewards uses real calendar months in this timezone.
+timezone: "America/New_York"
+
+# How often the plugin checks whether an enabled reward period is due.
+# A missed configured minute is not skipped: if the period is due and has not
+# been processed, the plugin will run it at the next check (including startup).
+scheduler-check-minutes: 5
+
+rewards:
+  companion:
+    # RoleRewards v1 intentionally uses direct LuckPerms group membership.
+    group: "companion"
+    membership:
+      direct-only: true
+
+    schedule:
+      # Keep disabled while commissioning. Preview/manual run still work.
+      enabled: false
+      day-of-month: 1
+      time: "22:00"
+
+    # Commands run as console, once per eligible player per calendar period.
+    # A leading slash is accepted but not required.
+    # Supported placeholders: {player}, {uuid}, {reward}, {period}
+    commands:
+      - "points give {player} 50"
+      # Optional best-effort example if you want to notify online players:
+      # - "msg {player} Thanks for being a Companion! You've received 50 Loyalty Points."

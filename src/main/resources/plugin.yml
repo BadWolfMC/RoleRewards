@@ -1,0 +1,48 @@
+name: RoleRewards
+version: '${version}'
+main: com.badwolfmc.rolerewards.RoleRewardsPlugin
+description: Scheduled LuckPerms role rewards with SQLite-backed grant history.
+author: BadWolfMC
+api-version: '26.2'
+depend: [LuckPerms]
+
+permissions:
+  rolerewards.admin:
+    description: Grants access to all RoleRewards administrative commands.
+    default: op
+    children:
+      rolerewards.status: true
+      rolerewards.preview: true
+      rolerewards.run: true
+      rolerewards.retry: true
+      rolerewards.reload: true
+      rolerewards.history: true
+      rolerewards.history.others: true
+
+  rolerewards.status:
+    description: View RoleRewards scheduler and run status.
+    default: op
+
+  rolerewards.preview:
+    description: Preview eligible recipients for a configured reward.
+    default: op
+
+  rolerewards.run:
+    description: Manually execute a reward for the current calendar period.
+    default: op
+
+  rolerewards.retry:
+    description: Retry failed grants for a reward in the current calendar period.
+    default: op
+
+  rolerewards.reload:
+    description: Reload RoleRewards configuration and messages.
+    default: op
+
+  rolerewards.history:
+    description: View your own RoleRewards grant history.
+    default: op
+
+  rolerewards.history.others:
+    description: View another player's RoleRewards grant history.
+    default: op
