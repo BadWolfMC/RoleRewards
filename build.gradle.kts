@@ -1,3 +1,4 @@
+import java.util.zip.ZipFile
 import org.gradle.api.tasks.bundling.AbstractArchiveTask
 
 plugins {
@@ -79,14 +80,14 @@ tasks.shadowJar {
     }
 }
 
-val verifyTargetedJar by tasks.registering {
+val verifyTargetedJar = tasks.register("verifyTargetedJar") {
     group = "verification"
     description = "Verifies that the shaded plugin JAR contains only the targeted SQLite native library."
     dependsOn(tasks.shadowJar)
 
     doLast {
         val jarFile = tasks.shadowJar.get().archiveFile.get().asFile
-        val nativeEntries = java.util.zip.ZipFile(jarFile).use { zip ->
+        val nativeEntries = ZipFile(jarFile).use { zip ->
             zip.entries().asSequence()
                 .map { it.name }
                 .filter { it.startsWith("org/sqlite/native/") && !it.endsWith("/") }
