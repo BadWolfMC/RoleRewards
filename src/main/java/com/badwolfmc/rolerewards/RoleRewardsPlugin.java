@@ -23,10 +23,14 @@ public final class RoleRewardsPlugin extends JavaPlugin {
     public void onEnable() {
         try {
             ConfigManager configManager = new ConfigManager(this);
-            configManager.loadInitial();
-
             MessageService messages = new MessageService(this);
-            messages.loadInitial();
+
+            var initialConfig = configManager.prepareInitial();
+            var initialMessages = messages.prepareInitial();
+            configManager.commitInitial(initialConfig);
+            messages.commitInitial(initialMessages);
+            configManager.apply(initialConfig.config());
+            messages.apply(initialMessages.snapshot());
 
             LuckPerms luckPerms = LuckPermsProvider.get();
             LuckPermsEligibilityService eligibilityService = new LuckPermsEligibilityService(luckPerms);

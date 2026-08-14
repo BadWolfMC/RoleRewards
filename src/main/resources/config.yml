@@ -1,3 +1,6 @@
+# Managed schema marker. RoleRewards upgrades older schemas only during startup.
+config-version: 1
+
 # RoleRewards uses real calendar months in this timezone.
 timezone: "America/New_York"
 

@@ -5,7 +5,9 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -25,32 +27,65 @@ public final class ConfigManager {
             .withResolverStyle(ResolverStyle.STRICT);
 
     private final JavaPlugin plugin;
-    private File file;
+    private final Path file;
     private volatile RoleRewardsConfig current;
 
     public ConfigManager(JavaPlugin plugin) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
+        this.file = plugin.getDataFolder().toPath().resolve("config.yml");
     }
 
-    public RoleRewardsConfig loadInitial() {
-        plugin.saveDefaultConfig();
-        this.file = new File(plugin.getDataFolder(), "config.yml");
-        RoleRewardsConfig loaded = loadCandidate();
-        apply(loaded);
-        return loaded;
+    public InitialLoad prepareInitial() {
+        YamlConfiguration bundled = YamlFileIO.loadResource(plugin, "config.yml");
+        ConfigSchema.requireBundledCurrent(bundled);
+
+        boolean existed = Files.exists(file);
+        YamlConfiguration installed = existed ? YamlFileIO.load(file, "config.yml") : bundled;
+        SchemaMigrationResult migration = ConfigSchema.migrateForStartup(installed);
+        RoleRewardsConfig parsed = parse(migration.configuration());
+
+        YamlFileIO.PendingWrite pendingWrite = null;
+        if (!existed || migration.changed()) {
+            pendingWrite = YamlFileIO.pendingWrite(
+                    file,
+                    migration.configuration().saveToString(),
+                    existed,
+                    migration.fromVersion(),
+                    migration.toVersion()
+            );
+        }
+        return new InitialLoad(parsed, migration, pendingWrite, existed);
+    }
+
+    public void commitInitial(InitialLoad initial) {
+        Objects.requireNonNull(initial, "initial");
+        if (initial.pendingWrite() == null) {
+            return;
+        }
+        try {
+            var backup = initial.pendingWrite().commit();
+            if (!initial.existed()) {
+                plugin.getLogger().info("Created config.yml at schema version " + ConfigSchema.CURRENT_VERSION + ".");
+            } else {
+                long addedDefaults = initial.migration().changes().stream()
+                        .filter(change -> change.startsWith("added "))
+                        .count();
+                String details = addedDefaults > 0
+                        ? "; added " + addedDefaults + " missing schema default(s)"
+                        : "";
+                plugin.getLogger().info(
+                        "Updated config.yml schema from " + initial.migration().fromVersion() + " to "
+                                + initial.migration().toVersion() + details + formatBackup(backup.orElse(null))
+                );
+            }
+        } catch (IOException ex) {
+            throw new IllegalStateException("Could not safely write upgraded config.yml", ex);
+        }
     }
 
     public RoleRewardsConfig loadCandidate() {
-        if (file == null) {
-            throw new IllegalStateException("Configuration file has not been initialized yet");
-        }
-
-        YamlConfiguration loaded = new YamlConfiguration();
-        try {
-            loaded.load(file);
-        } catch (Exception ex) {
-            throw new IllegalArgumentException("Could not load config.yml", ex);
-        }
+        YamlConfiguration loaded = YamlFileIO.load(file, "config.yml");
+        ConfigSchema.requireCurrent(loaded);
         return parse(loaded);
     }
 
@@ -158,5 +193,24 @@ public final class ConfigManager {
         }
 
         return new RoleRewardsConfig(zoneId, checkMinutes, rewards);
+    }
+
+    private String formatBackup(Path backup) {
+        if (backup == null) {
+            return ".";
+        }
+        return " (backup: " + backup.getFileName() + ").";
+    }
+
+    public record InitialLoad(
+            RoleRewardsConfig config,
+            SchemaMigrationResult migration,
+            YamlFileIO.PendingWrite pendingWrite,
+            boolean existed
+    ) {
+        public InitialLoad {
+            Objects.requireNonNull(config, "config");
+            Objects.requireNonNull(migration, "migration");
+        }
     }
 }

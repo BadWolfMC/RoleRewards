@@ -8,7 +8,7 @@ RoleRewards is a small Paper plugin for granting scheduled rewards to members of
 - Java 25
 - LuckPerms 5.x
 
-RoleRewards has no hard dependency on CMI, PlayerPoints, PlaceholderAPI, Continuum, or an external database. SQLite is bundled into the plugin JAR and stored at `plugins/RoleRewards/rolerewards.db`.
+RoleRewards does not support an external database. SQLite is bundled into the plugin JAR and stored at `plugins/RoleRewards/rolerewards.db`.
 
 > **Platform target:** the distributed/deployable RoleRewards JAR is intentionally built for **Linux x86_64 with glibc** (the BadWolfMC Paper host). Xerial SQLite JDBC is kept universal on the development/test classpath, but the shaded plugin JAR retains only its Linux x86_64 native library. This keeps the production artifact small while allowing the project and tests to build normally on Windows. A build-time verification task fails if that packaging guarantee changes.
 
@@ -46,6 +46,8 @@ If automatic scheduling is enabled after the configured date/time has already pa
 ## Configuration
 
 ```yaml
+config-version: 1
+
 timezone: "America/New_York"
 scheduler-check-minutes: 5
 
@@ -67,6 +69,45 @@ rewards:
 RoleRewards v1 intentionally supports **direct LuckPerms group membership only**, matching the broad behavior of `lp group <group> listmembers`. Eligibility requires a positive, unexpired direct inheritance node; negated or expired inheritance nodes are ignored. Before previewing or creating a run snapshot, RoleRewards also verifies that the configured LuckPerms group exists. A misspelled or deleted group therefore fails safely instead of recording an empty month. A configured `direct-only: false` is rejected rather than silently changing eligibility semantics.
 
 Reward IDs are case-normalized and must be unique after normalization. Empty/command-only-slash entries are rejected during configuration loading. `/rolerewards reload` stages and validates both `config.yml` and `messages.yml` before either live configuration is replaced, then restarts the scheduler only after both files have loaded successfully.
+
+### Configuration lifecycle and upgrades
+
+`config.yml` and `messages.yml` carry independent plugin-managed schema markers:
+
+```yaml
+config-version: 1
+```
+
+```yaml
+messages-version: 1
+```
+
+Schema migration is a **startup-only** operation. `/rolerewards reload` never migrates or rewrites either file; it only accepts the schema version supported by the running plugin, validates the hand-edited files, and applies them if both candidates are valid. If a legacy/unversioned file is intentionally being upgraded, restart RoleRewards rather than using reload.
+
+On startup RoleRewards:
+
+1. loads the bundled and installed YAML;
+2. treats an older unversioned/pre-release file as schema version `0`;
+3. refuses any installed schema newer than the running plugin supports;
+4. applies explicit version-to-version migrations in sequence;
+5. validates the migrated in-memory result before scheduling any disk update;
+6. backs up an existing file before replacing it; and
+7. writes through a temporary file and uses an atomic move when the filesystem supports one.
+
+Existing administrator values are authoritative. A migration may add a property that did not exist in an older schema, but it does not replace an existing value merely because a newer bundled default differs. In particular, RoleRewards never generically merges or replaces the `rewards:` tree: administrator-defined reward IDs, groups, schedules, commands, and unknown custom data remain intact unless a specific future schema migration explicitly transforms a setting. Defaults used by a schema migration are frozen in that migration step rather than read from whatever defaults a later plugin release happens to bundle, so an upstream default change cannot retroactively alter how an old schema is upgraded.
+
+For `messages.yml`, startup also performs a non-destructive missing-key merge from the bundled messages for the current plugin version. Existing/customized MiniMessage strings are preserved exactly; only absent bundled keys are added. The bundled message set is also kept as an in-memory fallback, so a current-schema file with a missing message key can still render the plugin default after `/rolerewards reload` without rewriting the file. On the next startup, that missing bundled key is written to `messages.yml`.
+
+When an existing file actually changes, backups are named along these lines:
+
+```text
+config.yml.v0-to-v1.20260814-221500-000.bak
+messages.yml.v1-to-v1.20260814-221500-000.bak
+```
+
+The `v1-to-v1` form can occur when the schema is already current but a missing bundled message key is repaired. A current, complete file is not rewritten on subsequent restarts. First-run creation does not produce a meaningless backup.
+
+Malformed YAML, an invalid migrated result, a non-integer schema marker, or a newer unsupported schema causes startup/reload to fail clearly rather than silently replacing administrator data. Migration validation happens before the existing YAML is rewritten; if a safe-write operation itself fails after a backup is created, the backup is left in place for recovery. Downgrading RoleRewards across a configuration schema change is therefore intentionally rejected rather than guessed at.
 
 The configured day is clamped to the last valid day of shorter months. For example, day 31 runs on February's final day.
 
@@ -127,9 +168,9 @@ History lookup by explicit player name is based on names stored in RoleRewards g
 
 ## Messages
 
-User-facing plugin messages are stored in `messages.yml` and parsed with Paper's bundled Adventure MiniMessage implementation. The full standard MiniMessage tag set is available, including colors, hex colors, gradients, decorations, hover/click events, fonts, and the other standard tags supported by the server's Adventure version.
+User-facing plugin messages are stored in `messages.yml`, whose current schema begins with `messages-version: 1`, and are parsed with Paper's bundled Adventure MiniMessage implementation. The full standard MiniMessage tag set is available, including colors, hex colors, gradients, decorations, hover/click events, fonts, and the other standard tags supported by the server's Adventure version.
 
-Dynamic values are inserted with MiniMessage resolvers rather than reparsed as markup. Malformed `messages.yml` is treated as a reload/startup error instead of being silently accepted.
+Dynamic values are inserted with MiniMessage resolvers rather than reparsed as markup. Known bundled message keys must remain strings. Missing known keys use the bundled in-memory fallback described above; malformed YAML or an invalid known-key type is treated as a reload/startup error instead of being silently accepted.
 
 RoleRewards does not register a player login listener. Offline-capable reward commands run at reward time; players can use history (where permitted) to verify grants.
 
@@ -138,9 +179,13 @@ RoleRewards does not register a player login listener. Offline-capable reward co
 ```text
 plugins/RoleRewards/
 ├── config.yml
+├── config.yml.v*-to-v*.*.bak      # only when a startup upgrade changes config.yml
 ├── messages.yml
+├── messages.yml.v*-to-v*.*.bak    # only when a startup upgrade/merge changes messages.yml
 └── rolerewards.db
 ```
+
+Configuration backups are exact copies of the pre-upgrade installed files. They are separate from SQLite backup requirements below.
 
 SQLite runs in WAL mode. RoleRewards records and validates its database schema version with SQLite `PRAGMA user_version`; startup refuses a database created by a newer unsupported schema rather than attempting to use it blindly. Pre-release/unversioned databases are migrated idempotently to schema version 1 on first startup with this build.
 

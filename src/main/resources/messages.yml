@@ -1,3 +1,6 @@
+# Managed schema marker. Missing bundled message keys are merged only during startup.
+messages-version: 1
+
 prefix: "<gradient:#17B4E6:#5555FF><bold>RoleRewards</bold></gradient> <dark_gray>»</dark_gray>"
 
 no-permission: "<prefix> <red>You do not have permission to use that command.</red>"
