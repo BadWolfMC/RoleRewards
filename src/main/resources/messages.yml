@@ -15,7 +15,7 @@ status-header: "<prefix> <gray>Configured rewards:</gray>"
 status-entry: "<dark_gray>•</dark_gray> <white><reward></white> <gray>— schedule <schedule>, next due <aqua><next_due></aqua>, last run <white><last_run></white></gray>"
 
 preview-header: "<prefix> <gray>Preview for <white><reward></white> / <aqua><period></aqua>: <white><eligible></white> currently eligible.</gray>"
-preview-run-recorded: "<prefix> <yellow>This period already has a recorded run snapshot; automatic/manual run will not add new recipients.</yellow>"
+preview-run-recorded: "<prefix> <yellow>This reward period has already been processed. Its recipient list is locked; newly eligible members will begin with the next period.</yellow>"
 preview-player: "<dark_gray>•</dark_gray> <white><player></white> <gray>— <status></gray>"
 preview-empty: "<prefix> <gray>No eligible members were found.</gray>"
 
