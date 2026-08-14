@@ -5,8 +5,8 @@ out/
 *.iml
 *.log
 .DS_Store
-.patch
-.zip
+*.patch
+*.zip
 
 # VS Code Java modernization tooling residue
 .github/modernize/
