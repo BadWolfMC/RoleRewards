@@ -60,6 +60,7 @@ public final class SqliteStore implements AutoCloseable {
             if (schemaVersion(connection) != SCHEMA_VERSION) {
                 throw new SQLException("RoleRewards database schema migration did not reach version " + SCHEMA_VERSION);
             }
+            validateSchemaStructure(connection);
         }
         recoverInterruptedWork();
     }
@@ -119,6 +120,7 @@ public final class SqliteStore implements AutoCloseable {
                     """);
             statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_reward_grants_uuid ON reward_grants(player_uuid)");
             statement.executeUpdate("CREATE INDEX IF NOT EXISTS idx_reward_grants_name ON reward_grants(player_name COLLATE NOCASE)");
+            validateSchemaStructure(connection);
             statement.execute("PRAGMA user_version = 1");
             connection.commit();
         } catch (SQLException ex) {
@@ -133,6 +135,19 @@ public final class SqliteStore implements AutoCloseable {
         try (Connection connection = open()) {
             connection.setAutoCommit(false);
             try {
+                Set<RunKey> interruptedRuns = new LinkedHashSet<>();
+                try (PreparedStatement pendingRuns = connection.prepareStatement("""
+                        SELECT DISTINCT reward_id, period
+                        FROM reward_grants
+                        WHERE status = 'PENDING'
+                        """)) {
+                    try (ResultSet rs = pendingRuns.executeQuery()) {
+                        while (rs.next()) {
+                            interruptedRuns.add(new RunKey(rs.getString("reward_id"), rs.getString("period")));
+                        }
+                    }
+                }
+
                 int recovered;
                 try (PreparedStatement grants = connection.prepareStatement("""
                         UPDATE reward_grants
@@ -144,14 +159,52 @@ public final class SqliteStore implements AutoCloseable {
                     grants.setString(1, now.toString());
                     recovered = grants.executeUpdate();
                 }
+
+                List<RunKey> runningRuns = new ArrayList<>();
                 try (PreparedStatement runs = connection.prepareStatement("""
-                        UPDATE reward_runs
-                        SET status = 'INTERRUPTED', completed_at = COALESCE(completed_at, ?)
+                        SELECT reward_id, period
+                        FROM reward_runs
                         WHERE status = 'RUNNING'
                         """)) {
-                    runs.setString(1, now.toString());
-                    runs.executeUpdate();
+                    try (ResultSet rs = runs.executeQuery()) {
+                        while (rs.next()) {
+                            runningRuns.add(new RunKey(rs.getString("reward_id"), rs.getString("period")));
+                        }
+                    }
                 }
+
+                for (RunKey run : runningRuns) {
+                    int granted = countByStatus(connection, run.rewardId(), run.period(), "GRANTED");
+                    int failed = countByStatus(connection, run.rewardId(), run.period(), "FAILED");
+                    int pending = countByStatus(connection, run.rewardId(), run.period(), "PENDING");
+                    String status;
+                    if (interruptedRuns.contains(run) || pending > 0) {
+                        status = "INTERRUPTED";
+                    } else if (failed > 0) {
+                        status = "COMPLETE_WITH_FAILURES";
+                    } else {
+                        status = "COMPLETE";
+                    }
+
+                    try (PreparedStatement update = connection.prepareStatement("""
+                            UPDATE reward_runs
+                            SET status = ?, completed_at = COALESCE(completed_at, ?),
+                                granted_count = ?, failed_count = ?
+                            WHERE reward_id = ? AND period = ? AND status = 'RUNNING'
+                            """)) {
+                        update.setString(1, status);
+                        update.setString(2, now.toString());
+                        update.setInt(3, granted);
+                        update.setInt(4, failed);
+                        update.setString(5, run.rewardId());
+                        update.setString(6, run.period());
+                        requireSingleUpdate(
+                                update.executeUpdate(),
+                                "recover interrupted reward run " + run.rewardId() + " / " + run.period()
+                        );
+                    }
+                }
+
                 connection.commit();
                 if (recovered > 0) {
                     logger.warning("Recovered " + recovered + " interrupted pending reward grant(s) as FAILED for manual review.");
@@ -160,6 +213,70 @@ public final class SqliteStore implements AutoCloseable {
                 rollback(connection, ex);
                 throw ex;
             }
+        }
+    }
+
+    private void validateSchemaStructure(Connection connection) throws SQLException {
+        validateTable(
+                connection,
+                "reward_runs",
+                Set.of(
+                        "reward_id", "period", "status", "trigger", "started_at", "completed_at",
+                        "eligible_count", "granted_count", "failed_count"
+                ),
+                List.of("reward_id", "period")
+        );
+        validateTable(
+                connection,
+                "reward_grants",
+                Set.of(
+                        "reward_id", "period", "player_uuid", "player_name", "status", "failure_reason",
+                        "granted_at", "updated_at", "next_command_index"
+                ),
+                List.of("reward_id", "period", "player_uuid")
+        );
+    }
+
+    private void validateTable(
+            Connection connection,
+            String tableName,
+            Set<String> requiredColumns,
+            List<String> expectedPrimaryKey
+    ) throws SQLException {
+        Set<String> columns = new LinkedHashSet<>();
+        List<String> primaryKey = new ArrayList<>();
+
+        try (Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery("PRAGMA table_info(" + tableName + ")")) {
+            while (rs.next()) {
+                String name = rs.getString("name");
+                columns.add(name);
+                int primaryKeyPosition = rs.getInt("pk");
+                while (primaryKey.size() < primaryKeyPosition) {
+                    primaryKey.add(null);
+                }
+                if (primaryKeyPosition > 0) {
+                    primaryKey.set(primaryKeyPosition - 1, name);
+                }
+            }
+        }
+
+        if (columns.isEmpty()) {
+            throw new SQLException("RoleRewards database schema is missing required table '" + tableName + "'");
+        }
+        Set<String> missing = new LinkedHashSet<>(requiredColumns);
+        missing.removeAll(columns);
+        if (!missing.isEmpty()) {
+            throw new SQLException(
+                    "RoleRewards database table '" + tableName + "' is missing required column(s): "
+                            + String.join(", ", missing)
+            );
+        }
+        if (!primaryKey.equals(expectedPrimaryKey)) {
+            throw new SQLException(
+                    "RoleRewards database table '" + tableName + "' has an unexpected primary key; expected "
+                            + String.join(", ", expectedPrimaryKey)
+            );
         }
     }
 
@@ -593,6 +710,9 @@ public final class SqliteStore implements AutoCloseable {
         } catch (SQLException ex) {
             logger.log(Level.WARNING, "Could not checkpoint RoleRewards SQLite WAL during shutdown.", ex);
         }
+    }
+
+    private record RunKey(String rewardId, String period) {
     }
 
     @FunctionalInterface

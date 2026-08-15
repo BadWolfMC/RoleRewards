@@ -67,6 +67,47 @@ class SqliteStoreTest {
     }
 
     @Test
+    void currentSchemaVersionStillRejectsStructurallyIncompatibleDatabase() throws Exception {
+        Path database = tempDir.resolve("test.db");
+
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath());
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    CREATE TABLE reward_runs (
+                        reward_id TEXT NOT NULL,
+                        period TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        trigger TEXT NOT NULL,
+                        started_at TEXT NOT NULL,
+                        completed_at TEXT,
+                        eligible_count INTEGER NOT NULL DEFAULT 0,
+                        granted_count INTEGER NOT NULL DEFAULT 0,
+                        failed_count INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (reward_id, period)
+                    )
+                    """);
+            statement.executeUpdate("""
+                    CREATE TABLE reward_grants (
+                        reward_id TEXT NOT NULL,
+                        period TEXT NOT NULL,
+                        player_uuid TEXT NOT NULL,
+                        player_name TEXT,
+                        status TEXT NOT NULL,
+                        failure_reason TEXT,
+                        granted_at TEXT,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (reward_id, period, player_uuid)
+                    )
+                    """);
+            statement.execute("PRAGMA user_version = 1");
+        }
+
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        var thrown = assertThrows(java.sql.SQLException.class, store::initialize);
+        assertTrue(thrown.getMessage().contains("next_command_index"));
+    }
+
+    @Test
     void pendingWorkIsRecoveredAsFailedAfterRestart() throws Exception {
         Path database = tempDir.resolve("test.db");
         UUID uuid = UUID.randomUUID();
@@ -91,6 +132,76 @@ class SqliteStoreTest {
 
         var run = store.getRun("companion", "2026-08").join().orElseThrow();
         assertEquals("INTERRUPTED", run.status());
+        assertEquals(0, run.grantedCount());
+        assertEquals(1, run.failedCount());
+    }
+
+    @Test
+    void runningZeroRecipientSnapshotIsSafelyCompletedAfterRestart() throws Exception {
+        Path database = tempDir.resolve("test.db");
+
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        store.initialize();
+        assertTrue(store.createRunSnapshot("companion", "2026-08", "TEST", List.of()).join());
+        store.close();
+
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        store.initialize();
+
+        RewardRun run = store.getRun("companion", "2026-08").join().orElseThrow();
+        assertEquals("COMPLETE", run.status());
+        assertEquals(0, run.grantedCount());
+        assertEquals(0, run.failedCount());
+    }
+
+    @Test
+    void runningSnapshotWithOnlyTerminalGrantsIsSafelyFinalizedAfterRestart() throws Exception {
+        Path database = tempDir.resolve("test.db");
+        UUID uuid = UUID.randomUUID();
+
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        store.initialize();
+        assertTrue(store.createRunSnapshot(
+                "companion",
+                "2026-08",
+                "TEST",
+                List.of(new EligibleMember(uuid, "ExamplePlayer"))
+        ).join());
+        store.markGrantGranted("companion", "2026-08", uuid, "ExamplePlayer").join();
+        store.close();
+
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        store.initialize();
+
+        RewardRun run = store.getRun("companion", "2026-08").join().orElseThrow();
+        assertEquals("COMPLETE", run.status());
+        assertEquals(1, run.grantedCount());
+        assertEquals(0, run.failedCount());
+    }
+
+    @Test
+    void runningSnapshotWithTerminalFailureIsFinalizedWithFailuresAfterRestart() throws Exception {
+        Path database = tempDir.resolve("test.db");
+        UUID uuid = UUID.randomUUID();
+
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        store.initialize();
+        assertTrue(store.createRunSnapshot(
+                "companion",
+                "2026-08",
+                "TEST",
+                List.of(new EligibleMember(uuid, "ExamplePlayer"))
+        ).join());
+        store.markGrantFailed("companion", "2026-08", uuid, "ExamplePlayer", "test failure").join();
+        store.close();
+
+        store = new SqliteStore(database, Logger.getAnonymousLogger());
+        store.initialize();
+
+        RewardRun run = store.getRun("companion", "2026-08").join().orElseThrow();
+        assertEquals("COMPLETE_WITH_FAILURES", run.status());
+        assertEquals(0, run.grantedCount());
+        assertEquals(1, run.failedCount());
     }
 
     @Test

@@ -10,3 +10,4 @@ out/
 
 # VS Code Java modernization tooling residue
 .github/modernize/
+.vscode/

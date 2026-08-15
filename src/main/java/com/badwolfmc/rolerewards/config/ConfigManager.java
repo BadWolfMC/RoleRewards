@@ -107,8 +107,8 @@ public final class ConfigManager {
         return snapshot;
     }
 
-    private RoleRewardsConfig parse(FileConfiguration config) {
-        String timezone = config.getString("timezone", "America/New_York");
+    static RoleRewardsConfig parse(FileConfiguration config) {
+        String timezone = optionalString(config, "timezone", "America/New_York", "timezone");
         ZoneId zoneId;
         try {
             zoneId = ZoneId.of(timezone);
@@ -116,7 +116,7 @@ public final class ConfigManager {
             throw new IllegalArgumentException("Invalid timezone: " + timezone, ex);
         }
 
-        int checkMinutes = config.getInt("scheduler-check-minutes", 5);
+        int checkMinutes = optionalInt(config, "scheduler-check-minutes", 5, "scheduler-check-minutes");
         if (checkMinutes < 1 || checkMinutes > 60) {
             throw new IllegalArgumentException("scheduler-check-minutes must be between 1 and 60");
         }
@@ -141,24 +141,43 @@ public final class ConfigManager {
                 throw new IllegalArgumentException("Reward '" + rawId + "' must be a configuration section");
             }
 
-            String group = section.getString("group");
-            if (group == null || group.isBlank()) {
+            String group = requiredString(section, "group", "Reward '" + id + "': group").trim();
+            if (group.isBlank()) {
                 throw new IllegalArgumentException("Reward '" + id + "' requires a LuckPerms group");
             }
-            group = group.trim();
 
-            boolean directOnly = section.getBoolean("membership.direct-only", true);
+            boolean directOnly = optionalBoolean(
+                    section,
+                    "membership.direct-only",
+                    true,
+                    "Reward '" + id + "': membership.direct-only"
+            );
             if (!directOnly) {
                 throw new IllegalArgumentException("Reward '" + id + "': RoleRewards v1 supports direct LuckPerms membership only");
             }
 
-            boolean enabled = section.getBoolean("schedule.enabled", false);
-            int day = section.getInt("schedule.day-of-month", 1);
+            boolean enabled = optionalBoolean(
+                    section,
+                    "schedule.enabled",
+                    false,
+                    "Reward '" + id + "': schedule.enabled"
+            );
+            int day = optionalInt(
+                    section,
+                    "schedule.day-of-month",
+                    1,
+                    "Reward '" + id + "': schedule.day-of-month"
+            );
             if (day < 1 || day > 31) {
                 throw new IllegalArgumentException("Reward '" + id + "': schedule.day-of-month must be between 1 and 31");
             }
 
-            String rawTime = section.getString("schedule.time", "22:00");
+            String rawTime = optionalString(
+                    section,
+                    "schedule.time",
+                    "22:00",
+                    "Reward '" + id + "': schedule.time"
+            );
             LocalTime time;
             try {
                 time = LocalTime.parse(rawTime, TIME_FORMAT);
@@ -166,8 +185,11 @@ public final class ConfigManager {
                 throw new IllegalArgumentException("Reward '" + id + "': schedule.time must use 24-hour HH:mm format", ex);
             }
 
-            List<String> commands = new ArrayList<>(section.getStringList("commands"));
-            commands.removeIf(String::isBlank);
+            List<String> commands = requiredStringList(
+                    section,
+                    "commands",
+                    "Reward '" + id + "': commands"
+            );
             if (commands.isEmpty()) {
                 throw new IllegalArgumentException("Reward '" + id + "' must configure at least one console command");
             }
@@ -193,6 +215,93 @@ public final class ConfigManager {
         }
 
         return new RoleRewardsConfig(zoneId, checkMinutes, rewards);
+    }
+
+    private static String requiredString(ConfigurationSection section, String path, String displayName) {
+        Object raw = section.get(path);
+        if (raw == null) {
+            throw new IllegalArgumentException(displayName + " is required");
+        }
+        if (!(raw instanceof String value)) {
+            throw new IllegalArgumentException(displayName + " must be a string");
+        }
+        return value;
+    }
+
+    private static String optionalString(
+            ConfigurationSection section,
+            String path,
+            String defaultValue,
+            String displayName
+    ) {
+        Object raw = section.get(path);
+        if (raw == null) {
+            return defaultValue;
+        }
+        if (!(raw instanceof String value)) {
+            throw new IllegalArgumentException(displayName + " must be a string");
+        }
+        return value;
+    }
+
+    private static boolean optionalBoolean(
+            ConfigurationSection section,
+            String path,
+            boolean defaultValue,
+            String displayName
+    ) {
+        Object raw = section.get(path);
+        if (raw == null) {
+            return defaultValue;
+        }
+        if (!(raw instanceof Boolean value)) {
+            throw new IllegalArgumentException(displayName + " must be true or false");
+        }
+        return value;
+    }
+
+    private static int optionalInt(
+            ConfigurationSection section,
+            String path,
+            int defaultValue,
+            String displayName
+    ) {
+        Object raw = section.get(path);
+        if (raw == null) {
+            return defaultValue;
+        }
+        if (!(raw instanceof Byte || raw instanceof Short || raw instanceof Integer || raw instanceof Long)) {
+            throw new IllegalArgumentException(displayName + " must be an integer");
+        }
+        long value = ((Number) raw).longValue();
+        if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(displayName + " is outside the supported integer range");
+        }
+        return (int) value;
+    }
+
+    private static List<String> requiredStringList(
+            ConfigurationSection section,
+            String path,
+            String displayName
+    ) {
+        Object raw = section.get(path);
+        if (raw == null) {
+            throw new IllegalArgumentException(displayName + " is required");
+        }
+        if (!(raw instanceof List<?> values)) {
+            throw new IllegalArgumentException(displayName + " must be a YAML list of strings");
+        }
+
+        List<String> result = new ArrayList<>(values.size());
+        for (int index = 0; index < values.size(); index++) {
+            Object value = values.get(index);
+            if (!(value instanceof String command)) {
+                throw new IllegalArgumentException(displayName + " entry " + (index + 1) + " must be a string");
+            }
+            result.add(command);
+        }
+        return result;
     }
 
     private String formatBackup(Path backup) {

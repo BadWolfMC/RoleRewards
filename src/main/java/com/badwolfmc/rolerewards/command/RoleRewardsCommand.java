@@ -225,9 +225,12 @@ public final class RoleRewardsCommand {
             var nextConfig = configManager.loadCandidate();
             var nextMessages = messages.loadCandidate();
 
+            // Invalidate any asynchronous due-check that made its scheduling decision
+            // against the old configuration before activating the new one.
+            scheduler.stop();
             configManager.apply(nextConfig);
             messages.apply(nextMessages);
-            scheduler.restart();
+            scheduler.start();
             messages.send(sender, "reload-success");
         } catch (Exception ex) {
             messages.send(sender, "reload-failed", text("reason", safeMessage(ex)));
