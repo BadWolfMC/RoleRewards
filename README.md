@@ -13,8 +13,6 @@ The plugin is intentionally designed for one authoritative Paper server and avoi
 
 The shaded production JAR bundles Xerial SQLite JDBC but retains only its Linux x86_64 native library. Development/tests can still run on Windows with the universal dependency.
 
-No MariaDB, PlaceholderAPI, CMI, PlayerPoints, login listener, or deferred notification system is required.
-
 ## Behavior
 
 - Reward periods are calendar months (`YYYY-MM`) in the configured timezone.
