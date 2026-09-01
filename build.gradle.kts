@@ -24,7 +24,7 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:26.2.build.112-stable")
     compileOnly("net.luckperms:api:5.5")
 
-    implementation("org.xerial:sqlite-jdbc:3.53.2.1") {
+    implementation("org.xerial:sqlite-jdbc:3.53.4.0") {
         exclude(group = "org.slf4j", module = "slf4j-api")
     }
 
