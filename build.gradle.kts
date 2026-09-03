@@ -21,14 +21,14 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.2.build.112-stable")
+    compileOnly("io.papermc.paper:paper-api:26.2.build.121-stable")
     compileOnly("net.luckperms:api:5.5")
 
     implementation("org.xerial:sqlite-jdbc:3.53.4.0") {
         exclude(group = "org.slf4j", module = "slf4j-api")
     }
 
-    testImplementation("io.papermc.paper:paper-api:26.2.build.112-stable")
+    testImplementation("io.papermc.paper:paper-api:26.2.build.121-stable")
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.3")
 }
