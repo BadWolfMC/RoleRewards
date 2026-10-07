@@ -3,7 +3,7 @@ version: '${version}'
 main: com.badwolfmc.rolerewards.RoleRewardsPlugin
 description: Scheduled LuckPerms role rewards with SQLite-backed grant history.
 author: mercurialmusic
-api-version: '26.2'
+api-version: '26.3'
 depend: [LuckPerms]
 
 permissions:
